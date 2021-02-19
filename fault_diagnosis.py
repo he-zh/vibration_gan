@@ -15,10 +15,9 @@ def parse_args():
 
     # basic parameters
     parser.add_argument('--data_dir', type=str, default= 'data\\0HP', help='the directory of the data')
-    parser.add_argument('--generated_data_dir', type=str, default=None, help='directory of generated data')
+    parser.add_argument('--generated_data_dir', type=str, default=None, help='directory of generated data if oversampling_method=GAN')
     parser.add_argument('--imbalance_ratio', type=int, default=100, help='imbalance ratio between major class samples and minor class samples')
     parser.add_argument('--batch_size', type=int, default=64, help='batchsize of the training process')
-    parser.add_argument('--swith_threshold', type=int, default=2.5, help='threshold of G-D loss difference for determining to train G or D')
     parser.add_argument('--normalization', type=str, default='minmax', help='way to process data: minmax or mean')
     parser.add_argument('--sampling', type=str, default='order', help='way to sample signals from original dataset: enc, order, random')
     parser.add_argument('--oversampling_method', type=str, default='none', help='way to oversample data:GAN, SMOTE, ADASYN,RANDOM, sampling_method')

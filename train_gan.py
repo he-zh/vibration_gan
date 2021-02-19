@@ -10,64 +10,37 @@ import matplotlib.pyplot as plt
 import time 
 import matplotlib.gridspec as gridspec
 import preprocess_for_gan
+import argparse
+args = None
 
-'''
-使用振动信号数据集
-'''
-# 训练参数
-path = r'data/0HP'
-target = 'B007'
-data_dim = 896 # 大于2周期
-diagnosis_number = 1000
-normalization='minmax' #'minmax', 'mean'
-rate = [0.5,0.25,0.25] # 测试集验证集划分比例
-sampling='order' #'enc', 'order', 'random'
-imbalance_ratio = 100
-test = True # True/False
+def parse_args():
+    parser = argparse.ArgumentParser(description='GAN')
 
-number = int(diagnosis_number*rate[0]//imbalance_ratio) # 训练样本的数量, 等于故障诊断模型的训练样本量
-batch_size = 5
-random_dim = 512 #100
-epochs = 30000 # 4000 for LSGAN
-learning_rate = 2e-4
-sample_rate = 1000
-iter = math.ceil(number/batch_size)# 每轮epoch中batch的迭代数
-swith_threshold = 2.5 # 2.5 for DCGAN/SNGAN， RSGAN可能需要大一点, LSGAN可能需要小一点 0.5
-train_times = 5
-GAN_type = "WGAN-GP" #"DCGAN, WGAN, WGAN-GP, SNGAN, LSGAN, RSGAN, RaSGAN"
-epsilon = 1e-14 #if epsilon is too big, training of DCGAN is failure.
+    # basic parameters
+    parser.add_argument('--phase', type=str, default='train', help='train or generate')
+    parser.add_argument('--GAN_type', type=str, default='WGAN-GP', help='the name of the model: WGAN, WGAN-GP, DCGAN, LSGAN, SNGAN, RSGAN, RaSGAN')
+    parser.add_argument('--data_dir', type=str, default= 'data\\0HP', help='the directory of the data')
+    parser.add_argument('--target', type=str, default='B007', help='target signal to generate')
+    parser.add_argument('--imbalance_ratio', type=int, default=100, help='imbalance ratio between major class samples and minor class samples')
+    parser.add_argument('--checkpoint_dir', type=str, default='samples\WGAN-GP\ORDER\ratio-50\orderIR021-05-17-20_22\checkpoint\model-97000', help='the saved checkpoint to generate signals')
+    parser.add_argument('--batch_size', type=int, default=5, help='batchsize of the training process')
+    parser.add_argument('--swith_threshold', type=int, default=2.5, help='threshold of G-D loss difference for determining to train G or D')
+    parser.add_argument('--normalization', type=str, default='minmax', help='way to process data: minmax or mean')
+    parser.add_argument('--sampling', type=str, default='order', help='way to sample signals from original dataset: enc, order, random')
 
-x_train, y_train = preprocess_for_gan.prepro(d_path=path,
-                                            target=target,
-                                            length=data_dim,
-                                            number=number,
-                                            normalization=normalization,
-                                            rate=rate,
-                                            sampling=sampling,
-                                            imbalance_ratio = imbalance_ratio
-                                            )
-# 输入卷积的时候还需要修改一下，增加通道数目
-x_train = x_train[:,:,np.newaxis]
 
-now = time.strftime("%m-%d-%H_%M", time.localtime(time.time()))
+    # optimization information
+    parser.add_argument('--lr', type=float, default=2e-4, help='the initial learning rate')
+    parser.add_argument('--epsilon', type=float, default=1e-14, help='if epsilon is too big, training of DCGAN is failure')
+   
 
-# samples_dir 
-if test == False:
-    samples_dir = "samples/"+GAN_type+'/'+'ratio-'+str(imbalance_ratio)+'/'+sampling+target+'-'+now
-    if not os.path.exists(samples_dir):
-        os.makedirs(samples_dir)
+    # save, load and display information
+    parser.add_argument('--max_epoch', type=int, default=30000, help='max number of epoch')
+    parser.add_argument('--sample_step', type=int, default=1000, help='the interval of log training information')
 
-    figure_dir = samples_dir + "/figure"
-    if not os.path.exists(figure_dir):
-        os.makedirs(figure_dir)
+    args = parser.parse_args()
+    return args
 
-    checkpoint_dir = samples_dir + "/checkpoint"
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-
-    signals_dir = samples_dir + "/signals"
-    if not os.path.exists(signals_dir):
-        os.makedirs(signals_dir)
 
 def get_sin_training_data(shape):
     '''
@@ -88,7 +61,7 @@ def shuffle_set(x, y):
     y_shuffle = np.array(y)[permutation]
     return x_shuffle, y_shuffle
     
-def get_batch(x, y, now_batch, total_batch):
+def get_batch(x, y, now_batch, batch_size, total_batch):
     if now_batch < total_batch - 1:
         x_batch = x[now_batch*batch_size:(now_batch+1)*batch_size,:]
         y_batch = y[now_batch*batch_size:(now_batch+1)*batch_size]
@@ -164,20 +137,46 @@ def spectral_norm(name, w, iteration=1):
         w_norm = tf.reshape(w_norm, w_shape)
     return w_norm
 
-def mapping(x):
+def mapping(x, epsilon):
     max = np.max(x)
     min = np.min(x)
     return (x - min) * 255.0 / (max - min + epsilon)
 
-def instanceNorm(inputs):
+def instanceNorm(inputs, epsilon):
     mean, var = tf.nn.moments(inputs, axes=[1], keep_dims=True) # axes=[1,2]
     scale = tf.get_variable("scale", shape=mean.shape[-1], initializer=tf.constant_initializer([1.0]))
     shift = tf.get_variable("shift", shape=mean.shape[-1], initializer=tf.constant_initializer([0.0]))
     return (inputs - mean) * scale / (tf.sqrt(var + epsilon)) + shift
 
+
+def make_dir(args):
+    
+    now = time.strftime("%m-%d-%H_%M", time.localtime(time.time()))
+
+    # samples_dir 
+    if args.phase == 'train':
+        samples_dir = "samples/"+args.GAN_type+'/'+'ratio-'+str(args.imbalance_ratio)+'/'+args.sampling+args.target+'-'+now
+        if not os.path.exists(samples_dir):
+            os.makedirs(samples_dir)
+
+        figure_dir = samples_dir + "/figure"
+        if not os.path.exists(figure_dir):
+            os.makedirs(figure_dir)
+
+        checkpoint_dir = samples_dir + "/checkpoint"
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+
+        signals_dir = samples_dir + "/signals"
+        if not os.path.exists(signals_dir):
+            os.makedirs(signals_dir)
+
+    return samples_dir, figure_dir, checkpoint_dir, signals_dir
+
 class Generator:
-    def __init__(self, name):
+    def __init__(self, name, epsilon):
         self.name = name
+        self.epsilon = epsilon
 
     def __call__(self, Z):
         size = tf.shape(Z)[0]
@@ -185,11 +184,11 @@ class Generator:
             with tf.variable_scope(name_or_scope="linear"):
                 inputs = tf.reshape(tf.nn.relu((fully_connected(Z, 7*256))), [size, 7, 256]) #[random_size]-->[7,256]
             with tf.variable_scope(name_or_scope="deconv1"):
-                inputs = tf.nn.relu(instanceNorm(deconv(inputs, [5, 128, 256], [1,2,1],[size, 14, 128]))) #[7,256]-->[14,128]
+                inputs = tf.nn.relu(instanceNorm(deconv(inputs, [5, 128, 256], [1,2,1],[size, 14, 128]), self.epsilon)) #[7,256]-->[14,128]
             with tf.variable_scope(name_or_scope="deconv2"):
-                inputs = tf.nn.relu(instanceNorm(deconv(inputs, [5, 64, 128], [1,4,1], [size, 56, 64]))) #[14,128]-->[56,64]
+                inputs = tf.nn.relu(instanceNorm(deconv(inputs, [5, 64, 128], [1,4,1], [size, 56, 64]), self.epsilon)) #[14,128]-->[56,64]
             with tf.variable_scope(name_or_scope="deconv3"):
-                inputs = tf.nn.relu(instanceNorm(deconv(inputs, [5, 32, 64], [1,4,1], [size, 224, 32]))) #[56,64]-->[224,32]
+                inputs = tf.nn.relu(instanceNorm(deconv(inputs, [5, 32, 64], [1,4,1], [size, 224, 32]), self.epsilon)) #[56,64]-->[224,32]
             with tf.variable_scope(name_or_scope="deconv4"):
                 inputs = tf.nn.tanh(deconv(inputs, [5, 1, 32], [1,4,1], [size, data_dim, 1])) # [224,32]-->[896,1]
                 # inputs = deconv(inputs, [5, 1, 32], [1,4,1], [size, data_dim, 1]) # [224,32]-->[896,1]
@@ -200,8 +199,9 @@ class Generator:
         return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name)
 
 class Discriminator:
-    def __init__(self, name):
+    def __init__(self, name, epsilon):
         self.name = name
+        self.epsilon = epsilon
 
     def __call__(self, inputs, gn_stddev, reuse=False, is_sn=False):
         gaussian_nosie = tf.random_normal(shape=tf.shape(inputs), mean=0., stddev=gn_stddev, dtype=tf.float32)
@@ -210,11 +210,11 @@ class Discriminator:
             with tf.variable_scope("conv1"):
                 inputs = leaky_relu(conv(inputs, [5, 1, 32], [1,4,1], is_sn)) # [896,1]-->[224,32]
             with tf.variable_scope("conv2"):
-                inputs = leaky_relu(instanceNorm(conv(inputs, [5, 32, 64], [1,4,1], is_sn))) #[224,32]-->[56,64]
+                inputs = leaky_relu(instanceNorm(conv(inputs, [5, 32, 64], [1,4,1], is_sn), self.epsilon)) #[224,32]-->[56,64]
             with tf.variable_scope("conv3"):
-                inputs = leaky_relu(instanceNorm(conv(inputs, [5, 64, 128], [1,4,1], is_sn))) #[56,64]-->[14,128]
+                inputs = leaky_relu(instanceNorm(conv(inputs, [5, 64, 128], [1,4,1], is_sn), self.epsilon)) #[56,64]-->[14,128]
             with tf.variable_scope("conv4"):
-                inputs = leaky_relu(instanceNorm(conv(inputs, [5, 128, 256], [1,2,1], is_sn))) #[14,128]-->[7,256]
+                inputs = leaky_relu(instanceNorm(conv(inputs, [5, 128, 256], [1,2,1], is_sn), self.epsilon)) #[14,128]-->[7,256]
             inputs = tf.layers.flatten(inputs)
             return fully_connected(inputs, 1, is_sn) #[7,256]-->[1,1]
 
@@ -225,22 +225,30 @@ class Discriminator:
 
 class GAN:
     #Architecture of generator and discriminator just like DCGAN.
-    def __init__(self):
-        self.Z = tf.placeholder("float", [None, random_dim])
+    def __init__(self, args, x_train, y_train, number):
+        self.args = args
+        self.random_dim = 512 #100
+        self.epsilon = args.epsilon
+        self.number = number
+        self.batch_size = args.batch_size
+        self.sample_step = args.sample_step
+        self.Z = tf.placeholder("float", [None, self.random_dim])
         self.X = tf.placeholder("float", [None, data_dim, 1])
         self.gn_stddev = tf.placeholder("float", [])
-        D = Discriminator("discriminator")
-        G = Generator("generator")
+        self.x_train = x_train
+        self.y_train = y_train
+        D = Discriminator("discriminator", self.epsilon)
+        G = Generator("generator", self.epsilon)
         self.fake_X = G(self.Z)
-        if GAN_type == "DCGAN":
+        if args.GAN_type == "DCGAN":
             #DCGAN, paper: UNSUPERVISED REPRESENTATION LEARNING WITH DEEP CONVOLUTIONAL GENERATIVE ADVERSARIAL NETWORKS
             self.fake_logit = tf.nn.sigmoid(D(self.fake_X, self.gn_stddev))
             self.real_logit = tf.nn.sigmoid(D(self.X, self.gn_stddev, reuse=True))
-            self.d_loss = - (tf.reduce_mean(tf.log(self.real_logit + epsilon)) + tf.reduce_mean(tf.log(1 - self.fake_logit + epsilon)))
-            self.g_loss = - tf.reduce_mean(tf.log(self.fake_logit + epsilon))
+            self.d_loss = - (tf.reduce_mean(tf.log(self.real_logit + self.epsilon)) + tf.reduce_mean(tf.log(1 - self.fake_logit + self.epsilon)))
+            self.g_loss = - tf.reduce_mean(tf.log(self.fake_logit + self.epsilon))
             self.opt_D = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.d_loss, var_list=D.var)
             self.opt_G = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.g_loss, var_list=G.var)
-        elif GAN_type == "WGAN":
+        elif args.GAN_type == "WGAN":
             #WGAN, paper: Wasserstein GAN
             self.fake_logit = D(self.fake_X, self.gn_stddev)
             self.real_logit = D(self.X, self.gn_stddev, reuse=True)
@@ -251,12 +259,12 @@ class GAN:
                 self.clip.append(var.assign(tf.clip_by_value(var, -0.01, 0.01)))
             self.opt_D = tf.train.RMSPropOptimizer(5e-5).minimize(self.d_loss, var_list=D.var)
             self.opt_G = tf.train.RMSPropOptimizer(5e-5).minimize(self.g_loss, var_list=G.var)
-        elif GAN_type == "WGAN-GP":
+        elif args.GAN_type == "WGAN-GP":
             #WGAN-GP, paper: Improved Training of Wasserstein GANs
             self.fake_logit = D(self.fake_X, self.gn_stddev)
             self.real_logit = D(self.X, self.gn_stddev, reuse=True)
             # 1. WGAN_GP
-            # e = tf.random_uniform([batch_size, 1, 1], 0, 1)
+            # e = tf.random_uniform([self.batch_size, 1, 1], 0, 1)
             # x_hat = e * self.X + (1 - e) * self.fake_X
             # grad = tf.gradients(D(x_hat, self.gn_stddev, reuse=True), x_hat)[0]
             # self.d_loss = tf.reduce_mean(self.fake_logit - self.real_logit) + 10 * tf.reduce_mean(tf.square(tf.sqrt(tf.reduce_sum(tf.square(grad), axis=1)) - 1)) #axis=[1,2,3]
@@ -270,7 +278,7 @@ class GAN:
             # self.d_loss = tf.reduce_mean(self.fake_logit - self.real_logit) + grad_pen
             
             # 3. WGAN_div2
-            e = tf.random_uniform([batch_size, 1, 1], 0, 1)
+            e = tf.random_uniform([self.batch_size, 1, 1], 0, 1)
             x_hat = e * self.X + (1 - e) * self.fake_X
             grad = tf.gradients(D(x_hat, self.gn_stddev, reuse=True), x_hat)[0]
             self.d_loss = tf.reduce_mean(self.fake_logit - self.real_logit) + 2 * tf.reduce_mean(tf.reduce_sum(tf.square(grad), axis=[1,2])) 
@@ -278,7 +286,7 @@ class GAN:
             self.g_loss = tf.reduce_mean(-self.fake_logit)
             self.opt_D = tf.train.AdamOptimizer(1e-4, beta1=0., beta2=0.9).minimize(self.d_loss, var_list=D.var)
             self.opt_G = tf.train.AdamOptimizer(1e-4, beta1=0., beta2=0.9).minimize(self.g_loss, var_list=G.var)
-        elif GAN_type == "LSGAN":
+        elif args.GAN_type == "LSGAN":
             #LSGAN, paper: Least Squares Generative Adversarial Networks
             self.fake_logit = D(self.fake_X, self.gn_stddev)
             self.real_logit = D(self.X, self.gn_stddev, reuse=True)
@@ -286,23 +294,23 @@ class GAN:
             self.g_loss = tf.reduce_mean(0.5 * tf.square(self.fake_logit - 1))
             self.opt_D = tf.train.AdamOptimizer(5e-5, beta1=0.5).minimize(self.d_loss, var_list=D.var)
             self.opt_G = tf.train.AdamOptimizer(5e-5, beta1=0.5).minimize(self.g_loss, var_list=G.var)
-        elif GAN_type == "SNGAN":
+        elif args.GAN_type == "SNGAN":
             #SNGAN, paper: SPECTRAL NORMALIZATION FOR GENERATIVE ADVERSARIAL NETWORKS
             self.fake_logit = tf.nn.sigmoid(D(self.fake_X, self.gn_stddev, is_sn=True))
             self.real_logit = tf.nn.sigmoid(D(self.X, self.gn_stddev, reuse=True, is_sn=True))
-            self.d_loss = - (tf.reduce_mean(tf.log(self.real_logit + epsilon) + tf.log(1 - self.fake_logit + epsilon)))
-            self.g_loss = - tf.reduce_mean(tf.log(self.fake_logit + epsilon))
+            self.d_loss = - (tf.reduce_mean(tf.log(self.real_logit + self.epsilon) + tf.log(1 - self.fake_logit + self.epsilon)))
+            self.g_loss = - tf.reduce_mean(tf.log(self.fake_logit + self.epsilon))
             self.opt_D = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.d_loss, var_list=D.var)
             self.opt_G = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.g_loss, var_list=G.var)
-        elif GAN_type == "RSGAN":
+        elif args.GAN_type == "RSGAN":
             #RSGAN, paper: The relativistic discriminator: a key element missing from standard GAN
             self.fake_logit = D(self.fake_X, self.gn_stddev)
             self.real_logit = D(self.X, self.gn_stddev, reuse=True)
-            self.d_loss = - tf.reduce_mean(tf.log(tf.nn.sigmoid(self.real_logit - self.fake_logit) + epsilon))
-            self.g_loss = - tf.reduce_mean(tf.log(tf.nn.sigmoid(self.fake_logit - self.real_logit) + epsilon))
+            self.d_loss = - tf.reduce_mean(tf.log(tf.nn.sigmoid(self.real_logit - self.fake_logit) + self.epsilon))
+            self.g_loss = - tf.reduce_mean(tf.log(tf.nn.sigmoid(self.fake_logit - self.real_logit) + self.epsilon))
             self.opt_D = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.d_loss, var_list=D.var)
             self.opt_G = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.g_loss, var_list=G.var)
-        elif GAN_type == "RaSGAN":
+        elif args.GAN_type == "RaSGAN":
             #RaSGAN, paper: The relativistic discriminator: a key element missing from standard GAN
             self.fake_logit = D(self.fake_X, self.gn_stddev)
             self.real_logit = D(self.X, self.gn_stddev, reuse=True)
@@ -310,8 +318,8 @@ class GAN:
             self.avg_real_logit = tf.reduce_mean(self.real_logit)
             self.D_r_tilde = tf.nn.sigmoid(self.real_logit - self.avg_fake_logit)
             self.D_f_tilde = tf.nn.sigmoid(self.fake_logit - self.avg_real_logit)
-            self.d_loss = - tf.reduce_mean(tf.log(self.D_r_tilde + epsilon)) - tf.reduce_mean(tf.log(1 - self.D_f_tilde + epsilon))
-            self.g_loss = - tf.reduce_mean(tf.log(self.D_f_tilde + epsilon)) - tf.reduce_mean(tf.log(1 - self.D_r_tilde + epsilon))
+            self.d_loss = - tf.reduce_mean(tf.log(self.D_r_tilde + self.epsilon)) - tf.reduce_mean(tf.log(1 - self.D_f_tilde + self.epsilon))
+            self.g_loss = - tf.reduce_mean(tf.log(self.D_f_tilde + self.epsilon)) - tf.reduce_mean(tf.log(1 - self.D_r_tilde + self.epsilon))
             self.opt_D = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.d_loss, var_list=D.var)
             self.opt_G = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(self.g_loss, var_list=G.var)
         self.sess = tf.Session()
@@ -321,32 +329,36 @@ class GAN:
     def __call__(self):
         saver = tf.train.Saver(max_to_keep=5, keep_checkpoint_every_n_hours=0.5)
         # saver = tf.train.Saver(max_to_keep=5)
-    
+        args = self.args
         gn_stddev = 0.1
         train_G = False
         train_D = False
-        if test == False:
+        iter = math.ceil(self.number/self.batch_size)# 每轮epoch中batch的迭代数
+        train_times = 5
+        samples_dir, figure_dir, checkpoint_dir, signals_dir = make_dir(args)
+        if args.phase == 'train':
             
-            for epoch in range(epochs):
-                x_shuffle, y_shuffle= shuffle_set(x_train, y_train)
+            for epoch in range(args.max_epoch):
+                x_shuffle, y_shuffle= shuffle_set(self.x_train, self.y_train)
                 if epoch % 1000 ==0 and epoch != 0:
                     step = epoch // 1000
                     gn_stddev /= step # stddev decreased every step
                 for i in range(iter):
-                    Z_batch = np.random.standard_normal([batch_size, random_dim])
-                    # X_batch = get_sin_training_data([batch_size, data_dim, 1])
-                    X_batch, _= get_batch(x_shuffle, y_shuffle, i, iter)
+                    Z_batch = np.random.standard_normal([self.batch_size, self.random_dim])
+                    # X_batch = get_sin_training_data([self.batch_size, data_dim, 1])
+                    X_batch, _= get_batch(x_shuffle, y_shuffle, i, self.batch_size, iter)
                     d_loss = self.sess.run(self.d_loss, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
                     g_loss = self.sess.run(self.g_loss, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
                     self.sess.run(self.opt_D, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
-                    if GAN_type == "WGAN":
+                    if args.GAN_type == "WGAN":
                         self.sess.run(self.clip)#WGAN weight clipping
                     self.sess.run(self.opt_G, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
-
+                
+                # train G or D if the loss difference between them is too large
                 loss_difference = abs(g_loss) - abs(d_loss)
-                if loss_difference > swith_threshold:
+                if loss_difference > args.swith_threshold:
                     train_G = True
-                elif loss_difference < - swith_threshold:
+                elif loss_difference < - args.swith_threshold:
                     train_D = True
                 else:
                     train_D = False
@@ -355,9 +367,9 @@ class GAN:
                 if train_G: #train G for 5 times if train_G
                     for t in range(train_times):
                         for i in range(iter):
-                            Z_batch = np.random.standard_normal([batch_size, random_dim])
-                            # X_batch = get_sin_training_data([batch_size, data_dim, 1])
-                            X_batch, _= get_batch(x_shuffle, y_shuffle, i, iter)
+                            Z_batch = np.random.standard_normal([self.batch_size, self.random_dim])
+                            # X_batch = get_sin_training_data([self.batch_size, data_dim, 1])
+                            X_batch, _= get_batch(x_shuffle, y_shuffle, i, self.batch_size, iter)
                             d_loss = self.sess.run(self.d_loss, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
                             g_loss = self.sess.run(self.g_loss, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
                             self.sess.run(self.opt_G, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
@@ -365,13 +377,13 @@ class GAN:
                 if train_D:
                     for t in range(train_times):
                         for i in range(iter):
-                            Z_batch = np.random.standard_normal([batch_size, random_dim])
-                            # X_batch = get_sin_training_data([batch_size, data_dim, 1])
-                            X_batch, _= get_batch(x_shuffle, y_shuffle, i, iter)
+                            Z_batch = np.random.standard_normal([self.batch_size, self.random_dim])
+                            # X_batch = get_sin_training_data([self.batch_size, data_dim, 1])
+                            X_batch, _= get_batch(x_shuffle, y_shuffle, i, self.batch_size, iter)
                             d_loss = self.sess.run(self.d_loss, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
                             g_loss = self.sess.run(self.g_loss, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})                    
                             self.sess.run(self.opt_D, feed_dict={self.X: X_batch, self.Z: Z_batch, self.gn_stddev: gn_stddev})
-                            if GAN_type == "WGAN":
+                            if args.GAN_type == "WGAN":
                                 self.sess.run(self.clip)#WGAN weight clipping
 
                 if epoch % 100 == 0:
@@ -379,38 +391,66 @@ class GAN:
                     print("epoch: {}, d_loss: {}, g_loss: {}".format(epoch, d_loss, g_loss))
                     sys.stdout.flush()
 
-                if epoch % sample_rate == 0:
-                    z = np.random.standard_normal([50, random_dim]) 
+                if epoch % self.sample_step == 0:
+                    z = np.random.standard_normal([50, self.random_dim]) 
                     samples = self.sess.run(self.fake_X, feed_dict={self.Z: z})
                     sample_piece = samples[0:1,:]
                     fig = plot(sample_piece)
-                    fig.savefig('{}/{}.png'.format(figure_dir, str(epoch//sample_rate).zfill(4)), bbox_inches = 'tight')
+                    fig.savefig('{}/{}.png'.format(figure_dir, str(epoch//self.sample_step).zfill(4)), bbox_inches = 'tight')
                     plt.close(fig)
 
-                    sio.savemat('{}/{}.mat'.format(signals_dir, str(epoch//sample_rate).zfill(4), bbox_inches = 'tight'),{'x1':samples})
+                    sio.savemat('{}/{}.mat'.format(signals_dir, str(epoch//self.sample_step).zfill(4), bbox_inches = 'tight'),{'x1':samples})
                     saver.save(self.sess, checkpoint_dir+"/model", global_step = epoch)
-        else:
+        
+        elif args.phase == 'generate':
             
-            # 12k_Drive_End_B007_0_118
-            # 12k_Drive_End_B014_0_185
-            # 12k_Drive_End_B021_0_222
-            # 12k_Drive_End_IR007_0_105
-            # 12k_Drive_End_IR014_0_169
-            # 12k_Drive_End_IR021_0_209
-            # 12k_Drive_End_OR007@6_0_130
-            # 12k_Drive_End_OR014@6_0_197
-            # 12k_Drive_End_OR021@6_0_234
+            if args.target == 'B007':
+                file_name = '12k_Drive_End_B007_0_118'
+            elif args.target == 'B014':
+                file_name = '12k_Drive_End_B014_0_185'
+            elif args.target == 'B021':
+                file_name = '12k_Drive_End_B021_0_222'
+            elif args.target == 'IR007':
+                file_name = '12k_Drive_End_IR007_0_105'
+            elif args.target == 'IR014':
+                file_name = '12k_Drive_End_IR014_0_169'
+            elif args.target == 'IR021':
+                file_name = '12k_Drive_End_IR021_0_209'
+            elif args.target == 'OR007':
+                file_name = '12k_Drive_End_OR007@6_0_130'
+            elif args.target == 'OR014':
+                file_name = '12k_Drive_End_OR014@6_0_197'
+            elif args.target == 'OR021':
+                file_name = '12k_Drive_End_OR021@6_0_234'
             
             # G_saver = tf.train.Saver(G.var)
             # self.G_saver.restore(self.sess, tf.train.latest_checkpoint("samples/WGAN-GP/ORDER/ratio-50/orderOR021-05-05-00_27/checkpoint"))
-            self.G_saver.restore(self.sess, r'samples\WGAN-GP\ORDER\ratio-50\orderIR021-05-17-20_22\checkpoint\model-97000')
-            z = np.random.standard_normal([1000, random_dim]) 
+            self.G_saver.restore(self.sess, args.checkpoint_dir)
+            z = np.random.standard_normal([1000, self.random_dim]) 
             samples = self.sess.run(self.fake_X, feed_dict={self.Z: z})
-            sio.savemat('{}/{}.mat'.format("generated_data/ORDER_minmax_ratio50", "12k_Drive_End_IR021_0_209"),{'DE':samples})
+            sio.savemat('{}/{}.mat'.format("generated_data/ORDER_minmax_ratio50", file_name),{'DE':samples})
 
 
 
 
 if __name__ == "__main__":
-    gan = GAN()
+    args = parse_args()
+
+    data_dim = 896 # 大于2周期
+    diagnosis_number = 1000
+    rate = [0.5,0.25,0.25] # 测试集验证集划分比例
+    number = int(diagnosis_number*rate[0]//args.imbalance_ratio) # 训练样本的数量, 等于故障诊断模型的训练样本量
+
+    x_train, y_train = preprocess_for_gan.prepro(d_path=args.data_dir,
+                                            target=args.target,
+                                            length=data_dim,
+                                            number=number,
+                                            normalization=args.normalization,
+                                            rate=rate,
+                                            sampling=args.sampling,
+                                            imbalance_ratio = args.imbalance_ratio
+                                            )
+    # 输入卷积的时候还需要修改一下，增加通道数目
+    x_train = x_train[:,:,np.newaxis]
+    gan = GAN(args, x_train, y_train, number)
     gan()

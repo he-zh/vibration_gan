@@ -8,32 +8,55 @@ from keras.callbacks import TensorBoard
 import numpy as np
 import time 
 import os
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='diagnosis')
+
+    # basic parameters
+    parser.add_argument('--data_dir', type=str, default= 'data\\0HP', help='the directory of the data')
+    parser.add_argument('--generated_data_dir', type=str, default=None, help='directory of generated data')
+    parser.add_argument('--imbalance_ratio', type=int, default=100, help='imbalance ratio between major class samples and minor class samples')
+    parser.add_argument('--batch_size', type=int, default=64, help='batchsize of the training process')
+    parser.add_argument('--swith_threshold', type=int, default=2.5, help='threshold of G-D loss difference for determining to train G or D')
+    parser.add_argument('--normalization', type=str, default='minmax', help='way to process data: minmax or mean')
+    parser.add_argument('--sampling', type=str, default='order', help='way to sample signals from original dataset: enc, order, random')
+    parser.add_argument('--oversampling_method', type=str, default='none', help='way to oversample data:GAN, SMOTE, ADASYN,RANDOM, sampling_method')
+
+    # switch between train and test phase
+    parser.add_argument('--phase', type=str, default='train', help='to train the diagnosis model or test it')
+   
+    # save, load information
+    parser.add_argument('--max_epoch', type=int, default=600, help='max number of epoch')
+    parser.add_argument('--checkpoint_dir', type=str, default='diagnosis_CWRU_model/ADASYN/order-50-0.71-best.hdf5', help='the saved checkpoint of diagnosis model')
+
+    args = parser.parse_args()
+    return args
+
+args = parse_args()
+
 # 训练参数
-classification = '10' #'binary' '10'
-if classification == 'binary':
-    path = r'data/0HP Binary Classification' # 10分类
-else:
-    path = r'data/0HP'
-generated = 'generated_data/ORDER_minmax_ratio10'
+
+# generated = 'generated_data/ORDER_minmax_ratio10'
 length = 896
 number = 1000 # 每类样本的数量/大类样本的数量
-normalization='minmax' # 最大最小值归一化'minmax', 均值归一化'mean'
+# normalization='minmax' # 最大最小值归一化'minmax', 均值归一化'mean'
 rate = [0.5,0.25,0.25] # 测试集验证集划分比例
-sampling = 'order'
-over_sampling = 'none' #'GAN', 'SMOTE', 'ADASYN','RANDOM', 'sampling_method'. 默认'none'
-imbalance_ratio = 1
-batch_size = 256
-epochs = 600
+# sampling = 'order'
+# over_sampling = 'none' #'GAN', 'SMOTE', 'ADASYN','RANDOM', 'sampling_method'. 默认'none'
+# imbalance_ratio = 1
+# batch_size = 256
+# epochs = 600
 BatchNorm = True
-x_train, y_train, x_valid, y_valid, x_test, y_test = preprocess_for_diagnosis.prepro(d_path=path,
-                                                                                    gan_data=generated,
+x_train, y_train, x_valid, y_valid, x_test, y_test = preprocess_for_diagnosis.prepro(d_path=args.data_dir,
+                                                                                    gan_data=args.generated_data_dir,
                                                                                     length=length,
                                                                                     number=number,
-                                                                                    normalization=normalization,
+                                                                                    normalization=args.normalization,
                                                                                     rate=rate,
-                                                                                    sampling=sampling, 
-                                                                                    over_sampling=over_sampling,
-                                                                                    imbalance_ratio=imbalance_ratio,
+                                                                                    sampling=args.sampling, 
+                                                                                    over_sampling=args.oversampling_method,
+                                                                                    imbalance_ratio=args.imbalance_ratio,
                                                                                     )                                                                                   
 num_classes = y_test.shape[1]
 # 输入卷积的时候还需要修改一下，增加通道数目
@@ -49,11 +72,9 @@ print(x_test.shape[0], '测试样本个数')
 
 now = time.strftime("%d-%H_%M", time.localtime(time.time()))
 
-logdir = 'logs/'+over_sampling+'/'+ sampling+ str(imbalance_ratio) +'/'+now
-save_path = 'diagnosis_CWRU_model/' + over_sampling
-if classification == 'binary':
-    logdir = logdir+'binary'
-    save_path = save_path + '/binary'
+logdir = 'logs/'+args.oversampling_method+'/'+ args.sampling+ str(args.imbalance_ratio) +'/'+now
+save_path = 'diagnosis_CWRU_model/' + args.oversampling_method
+
 if not os.path.exists(logdir):
     os.makedirs(logdir)
 if not os.path.exists(save_path):
@@ -110,8 +131,7 @@ model.add(Dense(units=num_classes, activation='softmax', kernel_regularizer=l2(1
 
 
 
-Test = True
-if Test == False:
+if args.phase == 'train':
     # 编译模型 评价函数和损失函数相似，不过评价函数的结果不会用于训练过程中
     model.compile(optimizer='Adam', loss='categorical_crossentropy',
                 metrics=['accuracy'])
@@ -119,15 +139,15 @@ if Test == False:
     # TensorBoard调用查看一下训练情况
     tb_cb = TensorBoard(log_dir=logdir)
     #checkpoint
-    filepath = save_path+'/'+ sampling+ '-'+str(imbalance_ratio)+'-{val_accuracy:.2f}-best.hdf5'
+    filepath = save_path+'/'+ args.sampling+ '-'+str(args.imbalance_ratio)+'-{val_accuracy:.2f}-best.hdf5'
     # 开始模型训练
     checkpoint= ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, save_weights_only=False, mode='max')
     callbacks_list= [tb_cb, checkpoint]
-    model.fit(x=x_train, y=y_train, batch_size=batch_size, epochs=epochs,
+    model.fit(x=x_train, y=y_train, batch_size=args.batch_size, epochs=args.max_epoch,
             verbose=2, validation_data=(x_valid, y_valid), shuffle=True,
             callbacks=callbacks_list)
 else:
-    model.load_weights('diagnosis_CWRU_model/ADASYN/order-50-0.71-best.hdf5')
+    model.load_weights(args.checkpoint_dir)
     model.compile(optimizer='Adam', loss='categorical_crossentropy',metrics=['accuracy'])
 
 # 评估模型

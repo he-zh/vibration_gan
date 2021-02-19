@@ -36,17 +36,9 @@ def parse_args():
 args = parse_args()
 
 # 训练参数
-
-# generated = 'generated_data/ORDER_minmax_ratio10'
 length = 896
 number = 1000 # 每类样本的数量/大类样本的数量
-# normalization='minmax' # 最大最小值归一化'minmax', 均值归一化'mean'
 rate = [0.5,0.25,0.25] # 测试集验证集划分比例
-# sampling = 'order'
-# over_sampling = 'none' #'GAN', 'SMOTE', 'ADASYN','RANDOM', 'sampling_method'. 默认'none'
-# imbalance_ratio = 1
-# batch_size = 256
-# epochs = 600
 BatchNorm = True
 x_train, y_train, x_valid, y_valid, x_test, y_test = preprocess_for_diagnosis.prepro(d_path=args.data_dir,
                                                                                     gan_data=args.generated_data_dir,

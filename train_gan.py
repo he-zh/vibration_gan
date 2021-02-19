@@ -402,7 +402,7 @@ class GAN:
                     sio.savemat('{}/{}.mat'.format(signals_dir, str(epoch//self.sample_step).zfill(4), bbox_inches = 'tight'),{'x1':samples})
                     saver.save(self.sess, checkpoint_dir+"/model", global_step = epoch)
         
-        elif args.phase == 'generate':
+        else:
             
             if args.target == 'B007':
                 file_name = '12k_Drive_End_B007_0_118'

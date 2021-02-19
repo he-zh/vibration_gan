@@ -1,5 +1,7 @@
 # vibration_gan
 Gan for time series vibration signals generation task, to enhance classification accuracy of diagnosis model by data augmentation
+
+
 personal undergraduate thesis
 
 ## dataset

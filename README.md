@@ -44,3 +44,5 @@ $ fault_diagnosis.py --imbalance_ratio=1 --oversampling_method='none'
 
 ## reference
 [DCGAN_WGAN_WGAN-GP_LSGAN_SNGAN_RSGAN_BEGAN_ACGAN_PGGAN_TensorFlow](https://github.com/MingtaoGuo/DCGAN_WGAN_WGAN-GP_LSGAN_SNGAN_RSGAN_BEGAN_ACGAN_PGGAN_TensorFlow/blob/master/GANs.py)
+
+[Keras_bearing_fault_diagnosis](https://github.com/zhangjiali1201/Keras_bearing_fault_diagnosis)

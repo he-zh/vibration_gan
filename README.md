@@ -1,5 +1,5 @@
 # vibration_gan
-Gan for time series vibration signals generation task, to enhance classification accuracy of fault diagnosis model by data augmentation
+Gan for time series vibration signals generation task, to enhance classification accuracy of fault diagnosis model under imbalanced training data.
 
 
 personal undergraduate thesis

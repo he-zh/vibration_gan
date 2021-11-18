@@ -154,22 +154,22 @@ def make_dir(args):
     now = time.strftime("%m-%d-%H_%M", time.localtime(time.time()))
 
     # samples_dir 
-    if args.phase == 'train':
-        samples_dir = "samples/"+args.GAN_type+'/'+'ratio-'+str(args.imbalance_ratio)+'/'+args.sampling+args.target+'-'+now
-        if not os.path.exists(samples_dir):
-            os.makedirs(samples_dir)
+    # if args.phase == 'train':
+    samples_dir = "samples/"+args.GAN_type+'/'+'ratio-'+str(args.imbalance_ratio)+'/'+args.sampling+args.target+'-'+now
+    if not os.path.exists(samples_dir):
+        os.makedirs(samples_dir)
 
-        figure_dir = samples_dir + "/figure"
-        if not os.path.exists(figure_dir):
-            os.makedirs(figure_dir)
+    figure_dir = samples_dir + "/figure"
+    if not os.path.exists(figure_dir):
+        os.makedirs(figure_dir)
 
-        checkpoint_dir = samples_dir + "/checkpoint"
-        if not os.path.exists(checkpoint_dir):
-            os.makedirs(checkpoint_dir)
+    checkpoint_dir = samples_dir + "/checkpoint"
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
 
-        signals_dir = samples_dir + "/signals"
-        if not os.path.exists(signals_dir):
-            os.makedirs(signals_dir)
+    signals_dir = samples_dir + "/signals"
+    if not os.path.exists(signals_dir):
+        os.makedirs(signals_dir)
 
     return samples_dir, figure_dir, checkpoint_dir, signals_dir
 
@@ -335,9 +335,8 @@ class GAN:
         train_D = False
         iter = math.ceil(self.number/self.batch_size)# 每轮epoch中batch的迭代数
         train_times = 5
-        samples_dir, figure_dir, checkpoint_dir, signals_dir = make_dir(args)
         if args.phase == 'train':
-            
+            samples_dir, figure_dir, checkpoint_dir, signals_dir = make_dir(args)
             for epoch in range(args.max_epoch):
                 x_shuffle, y_shuffle= shuffle_set(self.x_train, self.y_train)
                 if epoch % 1000 ==0 and epoch != 0:
